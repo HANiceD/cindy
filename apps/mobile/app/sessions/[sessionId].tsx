@@ -8970,6 +8970,7 @@ export default function SessionScreen() {
       {shareSelectionActive && conversationShareHtml && !conversationShareNativeRendererAvailable ? (
         <ConversationShareWebView
           html={conversationShareHtml}
+          key={conversationShareHtml}
           ref={conversationShareWebViewRef}
         />
       ) : null}
