@@ -871,6 +871,8 @@ export default function SessionScreen() {
   const visibleShareableMessageIdsReaderRef = useRef<(
     (viewport: ShareableMessageViewport) => Promise<readonly string[]>
   ) | null>(null);
+  const screenshotBlockedByOverlayRef = useRef(false);
+  const messageBlockingOverlayRef = useRef(false);
   const shareSelectionActiveRef = useRef(shareSelectionActive);
   shareSelectionActiveRef.current = shareSelectionActive;
   const lastScreenshotActivationAtRef = useRef(0);
@@ -895,6 +897,9 @@ export default function SessionScreen() {
   ) => {
     visibleShareableMessageIdsReaderRef.current = reader;
   }, []);
+  const handleMessageBlockingOverlayChange = useCallback((blocked: boolean) => {
+    messageBlockingOverlayRef.current = blocked;
+  }, []);
   useEffect(() => {
     shareOperationSeqRef.current += 1;
     lastScreenshotActivationAtRef.current = 0;
@@ -911,7 +916,11 @@ export default function SessionScreen() {
       if (Platform.OS !== 'ios' || !sessionId) return undefined;
       let cancelled = false;
       const subscription = addScreenshotListener(() => {
-        if (AppState.currentState !== 'active' || shareSelectionActiveRef.current) return;
+        if (
+          AppState.currentState !== 'active'
+          || shareSelectionActiveRef.current
+          || screenshotBlockedByOverlayRef.current
+        ) return;
         const now = Date.now();
         if (now - lastScreenshotActivationAtRef.current < SCREENSHOT_SHARE_ACTIVATION_DEBOUNCE_MS) return;
         lastScreenshotActivationAtRef.current = now;
@@ -920,13 +929,24 @@ export default function SessionScreen() {
             measureViewInWindow(topOverlayRef.current),
             measureViewInWindow(bottomOverlayRef.current),
           ]);
+          if (
+            cancelled
+            || AppState.currentState !== 'active'
+            || shareSelectionActiveRef.current
+            || screenshotBlockedByOverlayRef.current
+          ) return;
           const reader = visibleShareableMessageIdsReaderRef.current;
           if (!topOverlayFrame || !bottomOverlayFrame || !reader) return;
           const measuredClientIds = await reader({
             visibleBottom: bottomOverlayFrame.y,
             visibleTop: topOverlayFrame.y + topOverlayFrame.height,
           });
-          if (cancelled || AppState.currentState !== 'active' || shareSelectionActiveRef.current) return;
+          if (
+            cancelled
+            || AppState.currentState !== 'active'
+            || shareSelectionActiveRef.current
+            || screenshotBlockedByOverlayRef.current
+          ) return;
           const visibleClientIds = [...new Set(measuredClientIds)];
           if (visibleClientIds.length === 0) return;
           Keyboard.dismiss();
@@ -7546,6 +7566,18 @@ export default function SessionScreen() {
   // chip 长按菜单(浮动面板,ContextSheet/模型选择面板同款):target 即开关。
   const [chipMenuTarget, setChipMenuTarget] = useState<ChatFilePathTarget | null>(null);
   const [chipShareBusy, setChipShareBusy] = useState(false);
+  screenshotBlockedByOverlayRef.current = Boolean(
+    settingsOpen
+    || searchOpen
+    || (sessionTreeOpen && currentSession?.agentKind === 'pi')
+    || contextSheetOpen
+    || chipMenuTarget !== null
+    || (modelSheetOpen && canUseComposer)
+    || (permissionSheetOpen && canUseComposer)
+    || composerPreviewAttachmentId !== null
+    || sessionListDrawerOverlayMounted
+    || messageBlockingOverlayRef.current
+  );
 
   // 聊天正文文件 chip 上下文(消息树内 inline chip 经 context 消费,不走多层 prop):
   // stat 走被控端 fs:stat-path(失败由 verdict 层归为 unknown 乐观点亮)。
@@ -8522,6 +8554,7 @@ export default function SessionScreen() {
                     onForkMessage={collaborationReadOnlyReason ? undefined : forkAtMessage}
                     onLoadEarlier={loadEarlierMessages}
                     onOpenForkOrigin={forkOrigin ? openForkOrigin : undefined}
+                    onBlockingOverlayChange={handleMessageBlockingOverlayChange}
                     onOpenSessionLink={openSessionLink}
                     onPreviewRewind={collaborationReadOnlyReason ? undefined : previewRewindAtMessage}
                     onEnterShareSelection={enterShareSelection}
